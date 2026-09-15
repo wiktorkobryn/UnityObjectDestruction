@@ -9,6 +9,8 @@ public class MeshSlicer : MonoBehaviour
     public Transform slicePlaneTransform;
     private Plane slicePlane;
 
+    private List<VertexData> pointsAlongCut;
+
     private void Start()
     {
         objectMesh = GetComponent<MeshFilter>().mesh;
@@ -32,6 +34,9 @@ public class MeshSlicer : MonoBehaviour
         Vector3[] normals = objectMesh.normals;
         Vector2[] uvs = objectMesh.uv;
         int[] triangles = objectMesh.triangles;
+
+        // list for collecting vertices on slice plane
+        pointsAlongCut = new List<VertexData>();
 
         // 2 new meshes to divide triangles
         positiveMesh = new MeshBuilder();
@@ -60,12 +65,16 @@ public class MeshSlicer : MonoBehaviour
                 SliceTriangle(aVert, bVert, cVert);
         }
 
+        TriangulateCut(positiveMesh);
 
         CreateMeshObject(positiveMesh.Build(), name + "SlicePositive", true, true);
         CreateMeshObject(negativeMesh.Build(), name + "SliceNegative", true, true);
         Destroy(gameObject);
     }
 
+    /// <summary>
+    /// method finding and interpolating uv/normal of an intersection of plane and section between 2 vertices
+    /// <returns></returns>
     private VertexData GetIntersection(VertexData lineStart, VertexData lineEnd)
     {
         Vector3 rayDirection = lineEnd.position - lineStart.position;
@@ -103,14 +112,19 @@ public class MeshSlicer : MonoBehaviour
         VertexData abIntersection = GetIntersection(aVert, bVert);
         VertexData acIntersection = GetIntersection(aVert, cVert);
 
-        // 2 separate cases - B&C are positive or negative
-        if (aVert.side)
+        // adding points to a collection for triangulation
+        // side does not matter - 2 new meshes have the same cut hole
+        pointsAlongCut.Add(abIntersection);
+        pointsAlongCut.Add(acIntersection);
+
+        // 2 separate cases
+        if (aVert.side) // A positive, B&C negative
         {
             positiveMesh.AddTriangle(aVert, abIntersection, acIntersection, referenceNormal);
             negativeMesh.AddTriangle(bVert, cVert, acIntersection, referenceNormal);
             negativeMesh.AddTriangle(bVert, acIntersection, abIntersection, referenceNormal);
         }
-        else
+        else // B&C positive, A negative
         {
             negativeMesh.AddTriangle(aVert, abIntersection, acIntersection, referenceNormal);
             positiveMesh.AddTriangle(bVert, cVert, acIntersection, referenceNormal);
@@ -157,5 +171,10 @@ public class MeshSlicer : MonoBehaviour
             newComponent.slicePlaneTransform = slicePlaneTransform;
             newObject.AddComponent<KeyboardSliceAction>();
         }
+    }
+
+    private void TriangulateCut(MeshBuilder mesh)
+    {
+
     }
 }
