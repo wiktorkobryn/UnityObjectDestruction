@@ -20,7 +20,7 @@ public class MeshFracture : MonoBehaviour
 
     public void FractureMeshVoronoi()
     {
-        voronoiSeeds = MeshBoundsPointGenerator.GenerateVoronoiSeeds(colliderVoronoiBounds, 100);
+        voronoiSeeds = MeshOperations.GenerateVoronoiSeeds(colliderVoronoiBounds, 100);
     }
 
     private void OnDrawGizmos()

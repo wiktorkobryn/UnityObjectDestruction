@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-public static class MeshBoundsPointGenerator
+public static class MeshOperations
 {
     /// <summary>
     /// Method for generating voronoi seeds inside given mesh bound by mesh collider
@@ -32,7 +32,7 @@ public static class MeshBoundsPointGenerator
     /// <summary>
     /// Checks whether seed point candidate lies in given mesh bounds 
     /// </summary>
-    private static bool IsPointInsideMesh(MeshCollider collider, Vector3 point)
+    public static bool IsPointInsideMesh(MeshCollider collider, Vector3 point)
     {
         // raycast from the outside of the mesh collider to the point
         // because raycast does not detect a collider if it's origin is inside it
@@ -52,5 +52,11 @@ public static class MeshBoundsPointGenerator
             return true;
         else
             return false;
+    }
+
+
+    public static bool IsSamePoint(Vector3 a, Vector3 b)
+    {
+        return Vector3.SqrMagnitude(a - b) < 0.00001f;
     }
 }
