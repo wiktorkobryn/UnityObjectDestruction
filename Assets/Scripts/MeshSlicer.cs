@@ -67,11 +67,10 @@ public class MeshSlicer : MonoBehaviour
         }
 
         TriangulateCut(positiveMesh);
-        Debug.Log(sortedPointsAlongCut.Count);
 
         CreateMeshObject(positiveMesh.Build(), name + "SlicePositive", true, true);
         CreateMeshObject(negativeMesh.Build(), name + "SliceNegative", true, true);
-        // Destroy(gameObject);
+        Destroy(gameObject);
     }
 
     /// <summary>
@@ -175,9 +174,91 @@ public class MeshSlicer : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Triangulation by ear clipping
+    /// </summary>
+    /// <summary>
+    /// Triangulation by ear clipping
+    /// </summary>
+    /// <summary>
+    /// Triangulation by ear clipping
+    /// </summary>
     private void TriangulateCut(MeshBuilder mesh)
     {
         sortedPointsAlongCut = SortPointsAlongCut();
+        bool isSortedClockwise = IsCutWindingClockwise();
+
+        List<VertexData[]> ears = new List<VertexData[]>();
+
+        // removing one ear at a time until only the final triangle remains
+        while (sortedPointsAlongCut.Count > 3)
+        {
+            bool earFound = false;
+
+            for (int i = 0; i < sortedPointsAlongCut.Count; i++)
+            {
+                // getting previous, current and next vertex of the candidate ear
+                Vector2 previous = ProjectToSlicePlane(sortedPointsAlongCut[(i - 1 + sortedPointsAlongCut.Count) % sortedPointsAlongCut.Count].position);
+                Vector2 current = ProjectToSlicePlane(sortedPointsAlongCut[i].position);
+                Vector2 next = ProjectToSlicePlane(sortedPointsAlongCut[(i + 1) % sortedPointsAlongCut.Count].position);
+
+                // checking the direction of the turn at the current vertex
+                Vector2 vectA = current - previous;
+                Vector2 vectB = next - current;
+                float vectorCross = vectA.x * vectB.y - vectA.y * vectB.x;
+
+                // middle point of the ear must be convex in relation to the polygon
+                if ((isSortedClockwise && vectorCross < 0) || (!isSortedClockwise && vectorCross > 0))
+                {
+                    bool vertexInsideDetected = false;
+
+                    // checking if any other polygon vertex is inside the candidate triangle
+                    for (int j = 0; j < sortedPointsAlongCut.Count; j++)
+                    {
+                        if (j == i || j == (i - 1 + sortedPointsAlongCut.Count) % sortedPointsAlongCut.Count || j == (i + 1) % sortedPointsAlongCut.Count)
+                            continue;
+
+                        Vector2 point = ProjectToSlicePlane(sortedPointsAlongCut[j].position);
+
+                        if (MeshOperations.IsPointInsideTriangle2D(previous, current, next, point))
+                        {
+                            vertexInsideDetected = true;
+                            break;
+                        }
+                    }
+
+                    // valid ear found - save it and remove its middle vertex
+                    if (!vertexInsideDetected)
+                    {
+                        VertexData previousVertex = sortedPointsAlongCut[(i - 1 + sortedPointsAlongCut.Count) % sortedPointsAlongCut.Count];
+                        VertexData currentVertex = sortedPointsAlongCut[i];
+                        VertexData nextVertex = sortedPointsAlongCut[(i + 1) % sortedPointsAlongCut.Count];
+
+                        ears.Add(new VertexData[] { previousVertex, currentVertex, nextVertex });
+
+                        sortedPointsAlongCut.RemoveAt(i);
+                        earFound = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!earFound)
+                break;
+        }
+
+        // the last three vertices form the final triangle
+        if (sortedPointsAlongCut.Count == 3)
+        {
+            ears.Add(new VertexData[]
+            {
+            sortedPointsAlongCut[0],
+            sortedPointsAlongCut[1],
+            sortedPointsAlongCut[2]
+            });
+        }
+
+        Debug.Log("Ears: " + ears.Count);
     }
 
     /// <summary>
@@ -208,14 +289,14 @@ public class MeshSlicer : MonoBehaviour
                 int first = i;
                 int second = i + 1;
 
-                if (MeshOperations.IsSamePoint(sortedPoints.Last().position, unsortedPoints[first].position))
+                if (MeshOperations.IsSamePoint3D(sortedPoints.Last().position, unsortedPoints[first].position))
                 {
                     sortedPoints.Add(unsortedPoints[second]);
                     unsortedPoints.RemoveRange(first, 2);
                     found = true;
                     break;
                 }
-                else if (MeshOperations.IsSamePoint(sortedPoints.Last().position, unsortedPoints[second].position))
+                else if (MeshOperations.IsSamePoint3D(sortedPoints.Last().position, unsortedPoints[second].position))
                 {
                     sortedPoints.Add(unsortedPoints[first]);
                     unsortedPoints.RemoveRange(first, 2);
@@ -231,23 +312,52 @@ public class MeshSlicer : MonoBehaviour
         // removing last duplicated point
         sortedPoints.Remove(sortedPoints.Last());
 
+        Debug.Log("Points along cut: " + sortedPoints.Count);
         return sortedPoints;
     }
 
-    // debug gizmos
-    private void OnDrawGizmosSelected()
+    /// <summary>
+    /// calculating signed area of the cut polygon,
+    /// negative = clockwise winding, positive = counter clockwise winding
+    /// </summary>
+    private bool IsCutWindingClockwise()
     {
-        if (sortedPointsAlongCut == null || sortedPointsAlongCut.Count == 0)
-            return;
+        float winding = 0f;
 
+        // iterating over all polygon edges
         for (int i = 0; i < sortedPointsAlongCut.Count; i++)
         {
-            Vector3 position = transform.TransformPoint(sortedPointsAlongCut[i].position);
+            // converting points from 3D to 2D
+            Vector2 current = ProjectToSlicePlane(sortedPointsAlongCut[i].position);
+            Vector2 next = ProjectToSlicePlane(sortedPointsAlongCut[(i + 1) % sortedPointsAlongCut.Count].position);
 
-            Gizmos.color = Color.yellow;
-            Gizmos.DrawSphere(position, 0.05f);
-
-            UnityEditor.Handles.Label(position + Vector3.up * 0.1f, i.ToString());
+            // adding the contribution of the current edge
+            winding += current.x * next.y - next.x * current.y;
         }
+
+        // negative signed area == clockwise winding
+        return winding < 0f;
+    }
+
+    /// <summary>
+    /// Transforms 3D point to 2D coordinates on the slice plane
+    /// <returns></returns>
+    private Vector2 ProjectToSlicePlane(Vector3 point)
+    {
+        // finding an axis lying on the cut plane
+        Vector3 right = Vector3.Cross(slicePlane.normal, Vector3.up);
+
+        // using another axis if normal is parallel to up
+        if (right.sqrMagnitude < 0.000001f)
+            right = Vector3.Cross(slicePlane.normal, Vector3.right);
+
+        // normalizing the first plane axis
+        right.Normalize();
+
+        // finding the second axis lying on the cut plane
+        Vector3 up = Vector3.Cross(right, slicePlane.normal).normalized;
+
+        // converting 3D point to 2D plane coordinates
+        return new Vector2(Vector3.Dot(point, right), Vector3.Dot(point, up));
     }
 }

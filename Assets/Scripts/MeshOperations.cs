@@ -54,9 +54,35 @@ public static class MeshOperations
             return false;
     }
 
-
-    public static bool IsSamePoint(Vector3 a, Vector3 b)
+    public static bool IsSamePoint3D(Vector3 a, Vector3 b)
     {
         return Vector3.SqrMagnitude(a - b) < 0.00001f;
+    }
+
+    /// <summary>
+    /// checking if point lies in triangle by comparing fragmentary areas
+    /// </summary>
+    public static bool IsPointInsideTriangle2D(Vector2 triA, Vector2 triB, Vector2 triC, Vector2 point)
+    {
+        // comparison error
+        float epsilonErr = 0.0001f;
+
+        float fullArea = CalculateTriangleArea(triA, triB, triC);
+
+        float areaABP = CalculateTriangleArea(triA, triB, point);
+        float areaACP = CalculateTriangleArea(triA, triC, point);
+        float areaBCP = CalculateTriangleArea(triB, triC, point);
+        float fragmentaryAreasSum = areaABP + areaACP + areaBCP;
+
+        return Mathf.Abs(fullArea - fragmentaryAreasSum) < epsilonErr;
+    }
+
+    /// <summary>
+    /// calculating triangle area with given 3 points,
+    /// formula: A = | Ax(By - Cy) + Bx(Cy - Ay) + Cx(Ay-By) | / 2
+    /// </summary>
+    public static float CalculateTriangleArea(Vector2 triA, Vector2 triB, Vector2 triC)
+    {
+        return Mathf.Abs(triA.x * (triB.y - triC.y) + triB.x * (triC.y - triA.y) + triC.x * (triA.y - triB.y)) / 2.0f;
     }
 }
