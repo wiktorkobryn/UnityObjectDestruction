@@ -259,6 +259,8 @@ public class MeshSlicer : MonoBehaviour
         }
 
         Debug.Log("Ears: " + ears.Count);
+
+        AddCutTriangles(ears);
     }
 
     /// <summary>
@@ -359,5 +361,60 @@ public class MeshSlicer : MonoBehaviour
 
         // converting 3D point to 2D plane coordinates
         return new Vector2(Vector3.Dot(point, right), Vector3.Dot(point, up));
+    }
+
+    /// <summary>
+    /// creates new uv and normal data for triangles on a cut - based on the relation with a slice plane
+    /// </summary>
+    private void AddCutTriangles(List<VertexData[]> ears)
+    {
+        Vector3 cutNormal = slicePlane.normal;
+
+        foreach (VertexData[] ear in ears)
+        {
+            // Positive side of the cut.
+            VertexData aPositive = CreateCutVertex(ear[0], -cutNormal);
+            VertexData bPositive = CreateCutVertex(ear[1], -cutNormal);
+            VertexData cPositive = CreateCutVertex(ear[2], -cutNormal);
+
+            // Negative side of the cut.
+            VertexData aNegative = CreateCutVertex(ear[0], cutNormal);
+            VertexData bNegative = CreateCutVertex(ear[1], cutNormal);
+            VertexData cNegative = CreateCutVertex(ear[2], cutNormal);
+
+            // The reference normal determines the required triangle winding.
+            // MeshBuilder automatically swaps B/C when necessary.
+            positiveMesh.AddTriangle(aPositive, bPositive, cPositive, -cutNormal);
+            negativeMesh.AddTriangle(aNegative, bNegative, cNegative, cutNormal);
+        }
+    }
+
+    private VertexData CreateCutVertex(VertexData vertex, Vector3 normal)
+    {
+        Vector2 uv = ProjectCutUV(vertex.position);
+
+        return new VertexData(
+            vertex.position,
+            normal,
+            uv,
+            slicePlane.GetSide(vertex.position)
+        );
+    }
+
+    private Vector2 ProjectCutUV(Vector3 position)
+    {
+        Vector3 right = Vector3.Cross(slicePlane.normal, Vector3.up);
+
+        if (right.sqrMagnitude < 0.000001f)
+            right = Vector3.Cross(slicePlane.normal, Vector3.right);
+
+        right.Normalize();
+
+        Vector3 up = Vector3.Cross(right, slicePlane.normal).normalized;
+
+        return new Vector2(
+            Vector3.Dot(position, right),
+            Vector3.Dot(position, up)
+        );
     }
 }

@@ -7,11 +7,7 @@ public struct VertexData
     public Vector2 uv;
     public bool side;
 
-    public VertexData(
-        Vector3 position,
-        Vector3 normal,
-        Vector2 uv,
-        bool side)
+    public VertexData(Vector3 position, Vector3 normal, Vector2 uv, bool side)
     {
         this.position = position;
         this.normal = normal;
