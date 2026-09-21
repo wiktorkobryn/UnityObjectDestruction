@@ -8,6 +8,7 @@ public class MeshSlicer : MonoBehaviour
     private MeshBuilder positiveMesh, negativeMesh;
 
     public Transform slicePlaneTransform;
+    public Material cutMaterial;
     private Plane slicePlane;
 
     private List<VertexData> pointsAlongCut, sortedPointsAlongCut;
@@ -16,7 +17,7 @@ public class MeshSlicer : MonoBehaviour
     {
         objectMesh = GetComponent<MeshFilter>().mesh;
     }
-    
+
     private void GetSlicePlaneData()
     {
         // transforming plane to mesh local space
@@ -25,7 +26,10 @@ public class MeshSlicer : MonoBehaviour
         slicePlane = new Plane(localPlaneNormal, localPlanePosition);
     }
 
-
+    /// <summary>
+    /// slices a mesh in half, produces 2 independent submeshes with cutMaterial on a newly created trianglesz
+    /// autodestroys the game object
+    /// </summary>
     public void SliceMesh()
     {
         GetSlicePlaneData();
@@ -34,7 +38,6 @@ public class MeshSlicer : MonoBehaviour
         Vector3[] vertices = objectMesh.vertices;
         Vector3[] normals = objectMesh.normals;
         Vector2[] uvs = objectMesh.uv;
-        int[] triangles = objectMesh.triangles;
 
         // list for collecting vertices on slice plane
         pointsAlongCut = new List<VertexData>();
@@ -43,27 +46,37 @@ public class MeshSlicer : MonoBehaviour
         positiveMesh = new MeshBuilder();
         negativeMesh = new MeshBuilder();
 
-        // iterating over triangles in a mesh - 3D array packed into 2D
-        // [t1-A, t1-B, t1-C, t2-A, t2-B, t2-C, ...]
-        for (int i = 0; i < triangles.Length; i += 3)
+        // iterating over all submeshes
+        for (int subMesh = 0; subMesh < objectMesh.subMeshCount; subMesh++)
         {
-            // getting positions of vertices in a single triangle
-            int aIndex = triangles[i];
-            int bIndex = triangles[i + 1];
-            int cIndex = triangles[i + 2];
+            // triangles belonging to current material
+            int[] triangles = objectMesh.GetTriangles(subMesh);
 
-            // operating on entire data of a vertex - position, normal, uv
-            VertexData aVert = new VertexData(vertices[aIndex], normals[aIndex], uvs[aIndex], slicePlane.GetSide(vertices[aIndex]));
-            VertexData bVert = new VertexData(vertices[bIndex], normals[bIndex], uvs[bIndex], slicePlane.GetSide(vertices[bIndex]));
-            VertexData cVert = new VertexData(vertices[cIndex], normals[cIndex], uvs[cIndex], slicePlane.GetSide(vertices[cIndex]));
+            // submesh 1 contains triangles created by a cut
+            bool isCutMaterial = subMesh == 1;
 
-            // defining state of the triangle
-            if (aVert.side && bVert.side && cVert.side)             // entire triangle on side 1: +++
-                positiveMesh.AddTriangle(aVert, bVert, cVert);
-            else if (!aVert.side && !bVert.side && !cVert.side)     // entire triangle on side 0: ---
-                negativeMesh.AddTriangle(aVert, bVert, cVert);
-            else                                                    // triangle cut in half by a plane: ++/- or +/--
-                SliceTriangle(aVert, bVert, cVert);
+            // iterating over triangles in a mesh - 3D array packed into 2D
+            // [t1-A, t1-B, t1-C, t2-A, t2-B, t2-C, ...]
+            for (int i = 0; i < triangles.Length; i += 3)
+            {
+                // getting positions of vertices in a single triangle
+                int aIndex = triangles[i];
+                int bIndex = triangles[i + 1];
+                int cIndex = triangles[i + 2];
+
+                // operating on entire data of a vertex - position, normal, uv
+                VertexData aVert = new VertexData(vertices[aIndex], normals[aIndex], uvs[aIndex], slicePlane.GetSide(vertices[aIndex]));
+                VertexData bVert = new VertexData(vertices[bIndex], normals[bIndex], uvs[bIndex], slicePlane.GetSide(vertices[bIndex]));
+                VertexData cVert = new VertexData(vertices[cIndex], normals[cIndex], uvs[cIndex], slicePlane.GetSide(vertices[cIndex]));
+
+                // defining state of the triangle
+                if (aVert.side && bVert.side && cVert.side)             // entire triangle on side 1: +++
+                    positiveMesh.AddTriangle(aVert, bVert, cVert, isCutMaterial ? 1 : 0);
+                else if (!aVert.side && !bVert.side && !cVert.side)     // entire triangle on side 0: ---
+                    negativeMesh.AddTriangle(aVert, bVert, cVert, isCutMaterial ? 1 : 0);
+                else                                                    // triangle cut in half by a plane: ++/- or +/--
+                    SliceTriangle(aVert, bVert, cVert, isCutMaterial);
+            }
         }
 
         TriangulateCut(positiveMesh);
@@ -75,7 +88,7 @@ public class MeshSlicer : MonoBehaviour
 
     /// <summary>
     /// method finding and interpolating uv/normal of an intersection of plane and section between 2 vertices
-    /// <returns></returns>
+    /// </summary>
     private VertexData GetIntersection(VertexData lineStart, VertexData lineEnd)
     {
         Vector3 rayDirection = lineEnd.position - lineStart.position;
@@ -93,7 +106,7 @@ public class MeshSlicer : MonoBehaviour
         return new VertexData(position, normal, uv, slicePlane.GetSide(position));
     }
 
-    private void SliceTriangle(VertexData aVert, VertexData bVert, VertexData cVert)
+    private void SliceTriangle(VertexData aVert, VertexData bVert, VertexData cVert, bool isCutMaterial)
     {
         // remembering what side the normal was facing in original triangle
         Vector3 referenceNormal = Vector3.Cross(bVert.position - aVert.position, cVert.position - aVert.position);
@@ -102,6 +115,9 @@ public class MeshSlicer : MonoBehaviour
         bool aVertSide = aVert.side;
         bool bVertSide = bVert.side;
         bool cVertSide = cVert.side;
+
+        // material index of triangles created from the original triangle
+        int materialIndex = isCutMaterial ? 1 : 0;
 
         // Rearrange vertices so A is always the single vertex on one side ( A | BC )
         if (aVertSide == bVertSide)
@@ -121,15 +137,15 @@ public class MeshSlicer : MonoBehaviour
         // 2 separate cases
         if (aVert.side) // A positive, B&C negative
         {
-            positiveMesh.AddTriangle(aVert, abIntersection, acIntersection, referenceNormal);
-            negativeMesh.AddTriangle(bVert, cVert, acIntersection, referenceNormal);
-            negativeMesh.AddTriangle(bVert, acIntersection, abIntersection, referenceNormal);
+            positiveMesh.AddTriangle(aVert, abIntersection, acIntersection, referenceNormal, materialIndex);
+            negativeMesh.AddTriangle(bVert, cVert, acIntersection, referenceNormal, materialIndex);
+            negativeMesh.AddTriangle(bVert, acIntersection, abIntersection, referenceNormal, materialIndex);
         }
         else // B&C positive, A negative
         {
-            negativeMesh.AddTriangle(aVert, abIntersection, acIntersection, referenceNormal);
-            positiveMesh.AddTriangle(bVert, cVert, acIntersection, referenceNormal);
-            positiveMesh.AddTriangle(bVert, acIntersection, abIntersection, referenceNormal);
+            negativeMesh.AddTriangle(aVert, abIntersection, acIntersection, referenceNormal, materialIndex);
+            positiveMesh.AddTriangle(bVert, cVert, acIntersection, referenceNormal, materialIndex);
+            positiveMesh.AddTriangle(bVert, acIntersection, abIntersection, referenceNormal, materialIndex);
         }
     }
 
@@ -144,7 +160,14 @@ public class MeshSlicer : MonoBehaviour
         MeshFilter meshFilter = newObject.AddComponent<MeshFilter>();
         MeshRenderer meshRenderer = newObject.AddComponent<MeshRenderer>();
         meshFilter.mesh = mesh;
-        meshRenderer.material = GetComponent<MeshRenderer>().material;
+
+        Material originalMaterial = GetComponent<MeshRenderer>().sharedMaterials[0];
+
+        meshRenderer.materials = new Material[]
+        {
+            originalMaterial,
+            cutMaterial
+        };
 
         if (applyPhysics)
         {
@@ -170,16 +193,11 @@ public class MeshSlicer : MonoBehaviour
         {
             MeshSlicer newComponent = newObject.AddComponent<MeshSlicer>();
             newComponent.slicePlaneTransform = slicePlaneTransform;
+            newComponent.cutMaterial = cutMaterial;
             newObject.AddComponent<KeyboardSliceAction>();
         }
     }
 
-    /// <summary>
-    /// Triangulation by ear clipping
-    /// </summary>
-    /// <summary>
-    /// Triangulation by ear clipping
-    /// </summary>
     /// <summary>
     /// Triangulation by ear clipping
     /// </summary>
@@ -384,23 +402,23 @@ public class MeshSlicer : MonoBehaviour
 
             // The reference normal determines the required triangle winding.
             // MeshBuilder automatically swaps B/C when necessary.
-            positiveMesh.AddTriangle(aPositive, bPositive, cPositive, -cutNormal);
-            negativeMesh.AddTriangle(aNegative, bNegative, cNegative, cutNormal);
+            positiveMesh.AddCutTriangle(aPositive, bPositive, cPositive, -cutNormal);
+            negativeMesh.AddCutTriangle(aNegative, bNegative, cNegative, cutNormal);
         }
     }
 
+    /// <summary>
+    /// creating new vertexdata for trianle vertices on a cut
+    /// </summary>
     private VertexData CreateCutVertex(VertexData vertex, Vector3 normal)
     {
         Vector2 uv = ProjectCutUV(vertex.position);
-
-        return new VertexData(
-            vertex.position,
-            normal,
-            uv,
-            slicePlane.GetSide(vertex.position)
-        );
+        return new VertexData(vertex.position, normal, uv, slicePlane.GetSide(vertex.position));
     }
 
+    /// <summary>
+    /// creating uv for a cut triangle vertices
+    /// </summary>
     private Vector2 ProjectCutUV(Vector3 position)
     {
         Vector3 right = Vector3.Cross(slicePlane.normal, Vector3.up);
@@ -412,9 +430,6 @@ public class MeshSlicer : MonoBehaviour
 
         Vector3 up = Vector3.Cross(right, slicePlane.normal).normalized;
 
-        return new Vector2(
-            Vector3.Dot(position, right),
-            Vector3.Dot(position, up)
-        );
+        return new Vector2(Vector3.Dot(position, right), Vector3.Dot(position, up));
     }
 }
