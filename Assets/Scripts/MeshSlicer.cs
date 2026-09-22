@@ -149,6 +149,9 @@ public class MeshSlicer : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// creates gameobject for sliced parts, adds components
+    /// </summary>
     private void CreateMeshObject(Mesh mesh, string objectName, bool applyPhysics, bool applyMeshSlicer)
     {
         // creating a new object, adjusting transform
@@ -310,19 +313,15 @@ public class MeshSlicer : MonoBehaviour
                 int second = i + 1;
 
                 if (MeshOperations.IsSamePoint3D(sortedPoints.Last().position, unsortedPoints[first].position))
-                {
                     sortedPoints.Add(unsortedPoints[second]);
-                    unsortedPoints.RemoveRange(first, 2);
-                    found = true;
-                    break;
-                }
                 else if (MeshOperations.IsSamePoint3D(sortedPoints.Last().position, unsortedPoints[second].position))
-                {
                     sortedPoints.Add(unsortedPoints[first]);
-                    unsortedPoints.RemoveRange(first, 2);
-                    found = true;
-                    break;
-                }
+                else
+                    continue;
+
+                unsortedPoints.RemoveRange(first, 2);
+                found = true;
+                break;
             }
 
             if (!found)
@@ -361,7 +360,7 @@ public class MeshSlicer : MonoBehaviour
 
     /// <summary>
     /// Transforms 3D point to 2D coordinates on the slice plane
-    /// <returns></returns>
+    /// </summary>
     private Vector2 ProjectToSlicePlane(Vector3 point)
     {
         // finding an axis lying on the cut plane
