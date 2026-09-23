@@ -8,13 +8,37 @@ public class MeshCutter
     private MeshBuilder positiveMesh, negativeMesh;
 
     private Plane slicePlane;
+    private bool? sideToKeep;
 
     private List<VertexData> pointsAlongCut, sortedPointsAlongCut;
 
-    public MeshCutter(Mesh mesh, Plane plane)
+    public MeshCutter(Mesh mesh, Plane plane, Vector3? pointToKeep = null)
     {
         objectMesh = mesh;
         slicePlane = plane;
+
+        if (pointToKeep.HasValue)
+            sideToKeep = slicePlane.GetSide(pointToKeep.Value);
+        else
+            sideToKeep = null;
+    }
+
+    public void SetSlicePlane(Plane newPlane)
+    {
+        slicePlane = newPlane;
+    }
+
+    public void SetObjectMesh(Mesh newMesh)
+    {
+        objectMesh = newMesh;
+    }
+
+    public void SetPointToKeep(Vector3? pointToKeep)
+    {
+        if (pointToKeep.HasValue)
+            sideToKeep = slicePlane.GetSide(pointToKeep.Value);
+        else
+            sideToKeep = null;
     }
 
     public (Mesh positiveMesh, Mesh negativeMesh) Cut()
@@ -28,8 +52,8 @@ public class MeshCutter
         pointsAlongCut = new List<VertexData>();
 
         // 2 new meshes to divide triangles
-        positiveMesh = new MeshBuilder();
-        negativeMesh = new MeshBuilder();
+        positiveMesh = sideToKeep == false ? null : new MeshBuilder();
+        negativeMesh = sideToKeep == true ? null : new MeshBuilder();
 
         // iterating over all submeshes
         for (int subMesh = 0; subMesh < objectMesh.subMeshCount; subMesh++)
@@ -56,17 +80,27 @@ public class MeshCutter
 
                 // defining state of the triangle
                 if (aVert.side && bVert.side && cVert.side)             // entire triangle on side 1: +++
-                    positiveMesh.AddTriangle(aVert, bVert, cVert, isCutMaterial ? 1 : 0);
+                {
+                    if (sideToKeep != false)
+                        positiveMesh.AddTriangle(aVert, bVert, cVert, isCutMaterial ? 1 : 0);
+                }
                 else if (!aVert.side && !bVert.side && !cVert.side)     // entire triangle on side 0: ---
-                    negativeMesh.AddTriangle(aVert, bVert, cVert, isCutMaterial ? 1 : 0);
+                {
+                    if (sideToKeep != true)
+                        negativeMesh.AddTriangle(aVert, bVert, cVert, isCutMaterial ? 1 : 0);
+                }
                 else                                                    // triangle cut in half by a plane: ++/- or +/--
                     SliceTriangle(aVert, bVert, cVert, isCutMaterial);
             }
         }
 
-        TriangulateCut(positiveMesh);
+        if (positiveMesh != null)
+            TriangulateCut(positiveMesh);
 
-        return (positiveMesh.Build(), negativeMesh.Build());
+        if (negativeMesh != null)
+            TriangulateCut(negativeMesh);
+
+        return (positiveMesh?.Build(), negativeMesh?.Build());
     }
 
     /// <summary>
@@ -120,15 +154,25 @@ public class MeshCutter
         // 2 separate cases
         if (aVert.side) // A positive, B&C negative
         {
-            positiveMesh.AddTriangle(aVert, abIntersection, acIntersection, referenceNormal, materialIndex);
-            negativeMesh.AddTriangle(bVert, cVert, acIntersection, referenceNormal, materialIndex);
-            negativeMesh.AddTriangle(bVert, acIntersection, abIntersection, referenceNormal, materialIndex);
+            if (sideToKeep != false)
+                positiveMesh.AddTriangle(aVert, abIntersection, acIntersection, referenceNormal, materialIndex);
+
+            if (sideToKeep != true)
+            {
+                negativeMesh.AddTriangle(bVert, cVert, acIntersection, referenceNormal, materialIndex);
+                negativeMesh.AddTriangle(bVert, acIntersection, abIntersection, referenceNormal, materialIndex);
+            }
         }
         else // B&C positive, A negative
         {
-            negativeMesh.AddTriangle(aVert, abIntersection, acIntersection, referenceNormal, materialIndex);
-            positiveMesh.AddTriangle(bVert, cVert, acIntersection, referenceNormal, materialIndex);
-            positiveMesh.AddTriangle(bVert, acIntersection, abIntersection, referenceNormal, materialIndex);
+            if (sideToKeep != true)
+                negativeMesh.AddTriangle(aVert, abIntersection, acIntersection, referenceNormal, materialIndex);
+
+            if (sideToKeep != false)
+            {
+                positiveMesh.AddTriangle(bVert, cVert, acIntersection, referenceNormal, materialIndex);
+                positiveMesh.AddTriangle(bVert, acIntersection, abIntersection, referenceNormal, materialIndex);
+            }
         }
     }
 
@@ -332,8 +376,11 @@ public class MeshCutter
 
             // The reference normal determines the required triangle winding.
             // MeshBuilder automatically swaps B/C when necessary.
-            positiveMesh.AddCutTriangle(aPositive, bPositive, cPositive, -cutNormal);
-            negativeMesh.AddCutTriangle(aNegative, bNegative, cNegative, cutNormal);
+            if (sideToKeep != false)
+                positiveMesh.AddCutTriangle(aPositive, bPositive, cPositive, -cutNormal);
+
+            if (sideToKeep != true)
+                negativeMesh.AddCutTriangle(aNegative, bNegative, cNegative, cutNormal);
         }
     }
 

@@ -29,11 +29,14 @@ public class MeshSlicer : MonoBehaviour
 
         Plane slicePlane = new Plane(localPlaneNormal, localPlanePosition);
 
-        MeshCutter meshCutter = new MeshCutter(objectMesh, slicePlane);
+        Vector3? pointToKeep = null;
+
+        MeshCutter meshCutter = new MeshCutter(objectMesh, slicePlane, pointToKeep);
         (Mesh positiveMesh, Mesh negativeMesh) = meshCutter.Cut();
 
         CreateMeshObject(positiveMesh, name + "SlicePositive", true, true);
         CreateMeshObject(negativeMesh, name + "SliceNegative", true, true);
+
         Destroy(gameObject);
     }
 
