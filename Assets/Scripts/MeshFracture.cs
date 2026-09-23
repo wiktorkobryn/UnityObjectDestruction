@@ -20,9 +20,14 @@ public class MeshFracture : MonoBehaviour
 
     public void FractureMeshVoronoi()
     {
-        voronoiSeeds = MeshOperations.GenerateVoronoiSeeds(colliderVoronoiBounds, 100);
+        // generating vornoi seeds
+        voronoiSeeds = MeshOperations.GenerateVoronoiSeeds(colliderVoronoiBounds, 3);
+
     }
 
+    /// <summary>
+    /// visual debug - randomized seeds
+    /// </summary>
     private void OnDrawGizmos()
     {
         if (voronoiSeeds == null)

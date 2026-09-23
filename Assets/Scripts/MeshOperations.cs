@@ -85,4 +85,13 @@ public static class MeshOperations
     {
         return Mathf.Abs(triA.x * (triB.y - triC.y) + triB.x * (triC.y - triA.y) + triC.x * (triA.y - triB.y)) / 2.0f;
     }
+
+    public static Plane GetPlaneBetweenPoints(Vector3 pointA, Vector3 pointB)
+    {
+        // middle point and normal vector is needed to create a plane between 2 points
+        // xn = (xa + xb) / 2; yn = (ya + yb) / 2
+        Vector3 middlePoint = (pointB + pointA) / 2.0f;
+        Vector3 normal = (pointB - pointA).normalized; // direction from B to A - says which side of the plane is positive
+        return new Plane(normal, middlePoint);
+    }
 }
