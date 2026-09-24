@@ -248,6 +248,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   cutMaterial: {fileID: 2100000, guid: 9f5a80570ce463d47864f0bd63fecbba, type: 2}
+  cellAmountMin: 8
+  cellAmountMax: 10
+  randomizeSeedCount: 0
 --- !u!64 &61124689
 MeshCollider:
   m_ObjectHideFlags: 0

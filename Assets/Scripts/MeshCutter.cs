@@ -93,12 +93,15 @@ public class MeshCutter
                     SliceTriangle(aVert, bVert, cVert, isCutMaterial);
             }
         }
+        
+        if (pointsAlongCut != null && pointsAlongCut.Count >= 3)
+        {
+            if (positiveMesh != null)
+                TriangulateCut(positiveMesh);
 
-        if (positiveMesh != null)
-            TriangulateCut(positiveMesh);
-
-        if (negativeMesh != null)
-            TriangulateCut(negativeMesh);
+            if (negativeMesh != null)
+                TriangulateCut(negativeMesh);
+        }
 
         return (positiveMesh?.Build(), negativeMesh?.Build());
     }

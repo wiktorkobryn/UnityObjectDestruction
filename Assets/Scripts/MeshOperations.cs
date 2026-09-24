@@ -3,31 +3,6 @@ using UnityEngine;
 
 public static class MeshOperations
 {
-    /// <summary>
-    /// Method for generating voronoi seeds inside given mesh bound by mesh collider
-    /// </summary>
-    public static List<Vector3> GenerateVoronoiSeeds(MeshCollider collider, int amountOfPoints)
-    {
-        List<Vector3> seeds = new List<Vector3>();
-        Bounds meshColliderBounds = collider.bounds;
-
-        while (seeds.Count < amountOfPoints)
-        {
-            Vector3 pointCandidate = new Vector3(
-                Random.Range(meshColliderBounds.min.x, meshColliderBounds.max.x),
-                Random.Range(meshColliderBounds.min.y, meshColliderBounds.max.y),
-                Random.Range(meshColliderBounds.min.z, meshColliderBounds.max.z)
-                );
-
-            if (IsPointInsideMesh(collider, pointCandidate))
-            {
-                seeds.Add(pointCandidate);
-                Debug.Log("point added");
-            }
-        }
-
-        return seeds;
-    }
 
     /// <summary>
     /// Checks whether seed point candidate lies in given mesh bounds 
