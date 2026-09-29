@@ -14,6 +14,8 @@ public class MeshCutter
     private List<CutSegment> cutSegments;
     private List<VertexData> sortedPointsAlongCut;
 
+    private Dictionary<IntersectionKey, Vector3> intersectionCache;
+
     private struct CutSegment
     {
         public VertexData first;
@@ -23,6 +25,72 @@ public class MeshCutter
         {
             this.first = first;
             this.second = second;
+        }
+    }
+
+    private struct IntersectionKey
+    {
+        public Vector3Int first;
+        public Vector3Int second;
+
+        public IntersectionKey(Vector3 first, Vector3 second)
+        {
+            Vector3Int firstKey = Quantize(first);
+            Vector3Int secondKey = Quantize(second);
+
+            if (Compare(firstKey, secondKey) <= 0)
+            {
+                this.first = firstKey;
+                this.second = secondKey;
+            }
+            else
+            {
+                this.first = secondKey;
+                this.second = firstKey;
+            }
+        }
+
+        private static Vector3Int Quantize(Vector3 point)
+        {
+            const float precision = 100000f;
+
+            return new Vector3Int(
+                Mathf.RoundToInt(point.x * precision),
+                Mathf.RoundToInt(point.y * precision),
+                Mathf.RoundToInt(point.z * precision)
+            );
+        }
+
+        private static int Compare(Vector3Int a, Vector3Int b)
+        {
+            if (a.x != b.x)
+                return a.x.CompareTo(b.x);
+
+            if (a.y != b.y)
+                return a.y.CompareTo(b.y);
+
+            return a.z.CompareTo(b.z);
+        }
+
+        public override bool Equals(object obj)
+        {
+            if (!(obj is IntersectionKey))
+                return false;
+
+            IntersectionKey other = (IntersectionKey)obj;
+
+            return first == other.first && second == other.second;
+        }
+
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                int hash = 17;
+                hash = hash * 31 + first.GetHashCode();
+                hash = hash * 31 + second.GetHashCode();
+                return hash;
+            }
         }
     }
 
@@ -53,6 +121,8 @@ public class MeshCutter
 
     public void SetPointToKeep(Vector3? pointToKeep)
     {
+        this.pointToKeep = pointToKeep;
+
         if (pointToKeep.HasValue)
             sideToKeep = slicePlane.GetSide(pointToKeep.Value);
         else
@@ -68,6 +138,8 @@ public class MeshCutter
 
         // list for collecting vertices on slice plane
         cutSegments = new List<CutSegment>();
+
+        intersectionCache = new Dictionary<IntersectionKey, Vector3>();
 
         // 2 new meshes to divide triangles
         positiveMesh = sideToKeep == false ? null : new MeshBuilder();
@@ -112,14 +184,6 @@ public class MeshCutter
             }
         }
 
-        for (int i = 0; i < cutSegments.Count; i++)
-        {
-            Debug.Log(
-                $"Segment {i}: " +
-                $"{cutSegments[i].first.position} -> " +
-                $"{cutSegments[i].second.position}");
-        }
-
         if (cutSegments != null && cutSegments.Count >= 3)
         {
             if (positiveMesh != null)
@@ -137,15 +201,35 @@ public class MeshCutter
     /// </summary>
     private VertexData GetIntersection(VertexData lineStart, VertexData lineEnd)
     {
-        Vector3 rayDirection = lineEnd.position - lineStart.position;
-        Ray ray = new Ray(lineStart.position, rayDirection.normalized);
+        IntersectionKey key = new IntersectionKey(lineStart.position, lineEnd.position);
 
-        // getting the intersection point of ray and plane
-        slicePlane.Raycast(ray, out float distance);
-        Vector3 position = ray.GetPoint(distance);
+        Vector3 position;
+
+        if (intersectionCache.TryGetValue(key, out Vector3 cachedPosition))
+        {
+            position = cachedPosition;
+        }
+        else
+        {
+            Vector3 rayDirection = lineEnd.position - lineStart.position;
+            Ray ray = new Ray(lineStart.position, rayDirection.normalized);
+
+            // getting the intersection point of ray and plane
+            slicePlane.Raycast(ray, out float distance);
+            position = ray.GetPoint(distance);
+
+            intersectionCache.Add(key, position);
+        }
+
+        // calculate interpolation using current edge
+        Vector3 rayDirectionForInterpolation = lineEnd.position - lineStart.position;
+        float edgeLength = rayDirectionForInterpolation.magnitude;
+
+        float t = edgeLength > Mathf.Epsilon
+            ? Vector3.Distance(lineStart.position, position) / edgeLength
+            : 0f;
 
         // interpolating normal & uv for new vertex
-        float t = distance / rayDirection.magnitude; // how close is the new vertex to line start and end
         Vector3 normal = Vector3.Lerp(lineStart.normal, lineEnd.normal, t).normalized;
         Vector2 uv = Vector2.Lerp(lineStart.uv, lineEnd.uv, t);
 
