@@ -16,84 +16,6 @@ public class MeshCutter
 
     private Dictionary<IntersectionKey, Vector3> intersectionCache;
 
-    private struct CutSegment
-    {
-        public VertexData first;
-        public VertexData second;
-
-        public CutSegment(VertexData first, VertexData second)
-        {
-            this.first = first;
-            this.second = second;
-        }
-    }
-
-    private struct IntersectionKey
-    {
-        public Vector3Int first;
-        public Vector3Int second;
-
-        public IntersectionKey(Vector3 first, Vector3 second)
-        {
-            Vector3Int firstKey = Quantize(first);
-            Vector3Int secondKey = Quantize(second);
-
-            if (Compare(firstKey, secondKey) <= 0)
-            {
-                this.first = firstKey;
-                this.second = secondKey;
-            }
-            else
-            {
-                this.first = secondKey;
-                this.second = firstKey;
-            }
-        }
-
-        private static Vector3Int Quantize(Vector3 point)
-        {
-            const float precision = 100000f;
-
-            return new Vector3Int(
-                Mathf.RoundToInt(point.x * precision),
-                Mathf.RoundToInt(point.y * precision),
-                Mathf.RoundToInt(point.z * precision)
-            );
-        }
-
-        private static int Compare(Vector3Int a, Vector3Int b)
-        {
-            if (a.x != b.x)
-                return a.x.CompareTo(b.x);
-
-            if (a.y != b.y)
-                return a.y.CompareTo(b.y);
-
-            return a.z.CompareTo(b.z);
-        }
-
-        public override bool Equals(object obj)
-        {
-            if (!(obj is IntersectionKey))
-                return false;
-
-            IntersectionKey other = (IntersectionKey)obj;
-
-            return first == other.first && second == other.second;
-        }
-
-        public override int GetHashCode()
-        {
-            unchecked
-            {
-                int hash = 17;
-                hash = hash * 31 + first.GetHashCode();
-                hash = hash * 31 + second.GetHashCode();
-                return hash;
-            }
-        }
-    }
-
     public MeshCutter(Mesh mesh, Plane plane, Vector3? pointToKeep = null)
     {
         objectMesh = mesh;
@@ -110,7 +32,8 @@ public class MeshCutter
     {
         slicePlane = newPlane;
 
-        if (pointToKeep.HasValue)
+        // setting slice plane authomatically remembers which side to trim
+        if (pointToKeep.HasValue) 
             sideToKeep = slicePlane.GetSide(pointToKeep.Value);
     }
 
@@ -119,7 +42,10 @@ public class MeshCutter
         objectMesh = newMesh;
     }
 
-    public void SetPointToKeep(Vector3? pointToKeep)
+    /// <summary>
+    /// setting side to keep after cut based on point contained in mesh
+    /// </summary>
+    public void SetSideToKeep(Vector3? pointToKeep)
     {
         this.pointToKeep = pointToKeep;
 
@@ -129,6 +55,9 @@ public class MeshCutter
             sideToKeep = null;
     }
 
+    /// <summary>
+    /// 
+    /// </summary>
     public (Mesh positiveMesh, Mesh negativeMesh) Cut()
     {
         // vertices and triangles in a base mesh
@@ -145,7 +74,7 @@ public class MeshCutter
         positiveMesh = sideToKeep == false ? null : new MeshBuilder();
         negativeMesh = sideToKeep == true ? null : new MeshBuilder();
 
-        // iterating over all submeshes
+        // iterating over all submeshes, filling a list of created segments
         for (int subMesh = 0; subMesh < objectMesh.subMeshCount; subMesh++)
         {
             // triangles belonging to current material
@@ -184,6 +113,7 @@ public class MeshCutter
             }
         }
 
+        // separate triangulation for a case of cutting mesh in half and trimming
         if (cutSegments != null && cutSegments.Count >= 3)
         {
             if (positiveMesh != null)
@@ -225,9 +155,8 @@ public class MeshCutter
         Vector3 rayDirectionForInterpolation = lineEnd.position - lineStart.position;
         float edgeLength = rayDirectionForInterpolation.magnitude;
 
-        float t = edgeLength > Mathf.Epsilon
-            ? Vector3.Distance(lineStart.position, position) / edgeLength
-            : 0f;
+        // calculating weight of interpolation
+        float t = edgeLength > Mathf.Epsilon ? Vector3.Distance(lineStart.position, position) / edgeLength : 0f;
 
         // interpolating normal & uv for new vertex
         Vector3 normal = Vector3.Lerp(lineStart.normal, lineEnd.normal, t).normalized;
@@ -236,6 +165,9 @@ public class MeshCutter
         return new VertexData(position, normal, uv, slicePlane.GetSide(position));
     }
 
+    /// <summary>
+    /// method for slicing a single triangle
+    /// </summary>
     private void SliceTriangle(VertexData aVert, VertexData bVert, VertexData cVert, bool isCutMaterial)
     {
         // remembering what side the normal was facing in original triangle
@@ -288,6 +220,9 @@ public class MeshCutter
         }
     }
 
+    /// <summary>
+    /// Adding segment to a list if it is usnique
+    /// </summary>
     private void AddCutSegment(VertexData first, VertexData second)
     {
         if (MeshOperations.IsSamePoint3D(first.position, second.position))
@@ -558,31 +493,30 @@ public class MeshCutter
         return new Vector2(Vector3.Dot(position, right), Vector3.Dot(position, up));
     }
 
+    /// <summary>
+    /// optimisation method for reducing triangle count on cut parts
+    /// </summary>
     private void RemoveCollinearPoints()
     {
         bool pointRemoved = true;
 
+        // iterating over points until there is no collinear neighbors
         while (pointRemoved && sortedPointsAlongCut.Count > 3)
         {
             pointRemoved = false;
 
             for (int i = 0; i < sortedPointsAlongCut.Count; i++)
             {
-                Vector2 previous = ProjectToSlicePlane(
-                    sortedPointsAlongCut[(i - 1 + sortedPointsAlongCut.Count) % sortedPointsAlongCut.Count].position);
-
-                Vector2 current = ProjectToSlicePlane(
-                    sortedPointsAlongCut[i].position);
-
-                Vector2 next = ProjectToSlicePlane(
-                    sortedPointsAlongCut[(i + 1) % sortedPointsAlongCut.Count].position);
+                Vector2 previous = ProjectToSlicePlane(sortedPointsAlongCut[(i - 1 + sortedPointsAlongCut.Count) % sortedPointsAlongCut.Count].position);
+                Vector2 current = ProjectToSlicePlane(sortedPointsAlongCut[i].position);
+                Vector2 next = ProjectToSlicePlane(sortedPointsAlongCut[(i + 1) % sortedPointsAlongCut.Count].position);
 
                 Vector2 vectA = current - previous;
                 Vector2 vectB = next - current;
 
                 float cross = vectA.x * vectB.y - vectA.y * vectB.x;
 
-                if (Mathf.Abs(cross) < 0.000001f)
+                if (Mathf.Abs(cross) < 0.000001f)       // points on a line detected
                 {
                     sortedPointsAlongCut.RemoveAt(i);
                     pointRemoved = true;
