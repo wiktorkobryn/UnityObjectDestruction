@@ -29,19 +29,16 @@ public static class MeshOperations
             return false;
     }
 
-    public static bool IsSamePoint3D(Vector3 a, Vector3 b)
+    public static bool IsSamePoint3D(Vector3 a, Vector3 b, float epsilonErr = 0.00001f)
     {
-        return Vector3.SqrMagnitude(a - b) < 0.00001f;
+        return Vector3.SqrMagnitude(a - b) < epsilonErr * epsilonErr;
     }
 
     /// <summary>
     /// checking if point lies in triangle by comparing fragmentary areas
     /// </summary>
-    public static bool IsPointInsideTriangle2D(Vector2 triA, Vector2 triB, Vector2 triC, Vector2 point)
+    public static bool IsPointInsideTriangle2D(Vector2 triA, Vector2 triB, Vector2 triC, Vector2 point, float epsilonErr = 0.00001f)
     {
-        // comparison error
-        float epsilonErr = 0.0001f;
-
         float fullArea = CalculateTriangleArea(triA, triB, triC);
 
         float areaABP = CalculateTriangleArea(triA, triB, point);

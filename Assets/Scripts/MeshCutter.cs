@@ -9,13 +9,28 @@ public class MeshCutter
 
     private Plane slicePlane;
     private bool? sideToKeep;
+    private Vector3? pointToKeep;
 
-    private List<VertexData> pointsAlongCut, sortedPointsAlongCut;
+    private List<CutSegment> cutSegments;
+    private List<VertexData> sortedPointsAlongCut;
+
+    private struct CutSegment
+    {
+        public VertexData first;
+        public VertexData second;
+
+        public CutSegment(VertexData first, VertexData second)
+        {
+            this.first = first;
+            this.second = second;
+        }
+    }
 
     public MeshCutter(Mesh mesh, Plane plane, Vector3? pointToKeep = null)
     {
         objectMesh = mesh;
         slicePlane = plane;
+        this.pointToKeep = pointToKeep;
 
         if (pointToKeep.HasValue)
             sideToKeep = slicePlane.GetSide(pointToKeep.Value);
@@ -26,6 +41,9 @@ public class MeshCutter
     public void SetSlicePlane(Plane newPlane)
     {
         slicePlane = newPlane;
+
+        if (pointToKeep.HasValue)
+            sideToKeep = slicePlane.GetSide(pointToKeep.Value);
     }
 
     public void SetObjectMesh(Mesh newMesh)
@@ -49,7 +67,7 @@ public class MeshCutter
         Vector2[] uvs = objectMesh.uv;
 
         // list for collecting vertices on slice plane
-        pointsAlongCut = new List<VertexData>();
+        cutSegments = new List<CutSegment>();
 
         // 2 new meshes to divide triangles
         positiveMesh = sideToKeep == false ? null : new MeshBuilder();
@@ -93,8 +111,16 @@ public class MeshCutter
                     SliceTriangle(aVert, bVert, cVert, isCutMaterial);
             }
         }
-        
-        if (pointsAlongCut != null && pointsAlongCut.Count >= 3)
+
+        for (int i = 0; i < cutSegments.Count; i++)
+        {
+            Debug.Log(
+                $"Segment {i}: " +
+                $"{cutSegments[i].first.position} -> " +
+                $"{cutSegments[i].second.position}");
+        }
+
+        if (cutSegments != null && cutSegments.Count >= 3)
         {
             if (positiveMesh != null)
                 TriangulateCut(positiveMesh);
@@ -151,8 +177,7 @@ public class MeshCutter
 
         // adding points to a collection for triangulation
         // side does not matter - 2 new meshes have the same cut hole
-        pointsAlongCut.Add(abIntersection);
-        pointsAlongCut.Add(acIntersection);
+        AddCutSegment(abIntersection, acIntersection);
 
         // 2 separate cases
         if (aVert.side) // A positive, B&C negative
@@ -179,12 +204,37 @@ public class MeshCutter
         }
     }
 
+    private void AddCutSegment(VertexData first, VertexData second)
+    {
+        if (MeshOperations.IsSamePoint3D(first.position, second.position))
+            return;
+
+        for (int i = 0; i < cutSegments.Count; i++)
+        {
+            CutSegment segment = cutSegments[i];
+
+            bool sameDirection =
+                MeshOperations.IsSamePoint3D(segment.first.position, first.position) &&
+                MeshOperations.IsSamePoint3D(segment.second.position, second.position);
+
+            bool oppositeDirection =
+                MeshOperations.IsSamePoint3D(segment.first.position, second.position) &&
+                MeshOperations.IsSamePoint3D(segment.second.position, first.position);
+
+            if (sameDirection || oppositeDirection)
+                return;
+        }
+
+        cutSegments.Add(new CutSegment(first, second));
+    }
+
     /// <summary>
     /// Triangulation by ear clipping
     /// </summary>
     private void TriangulateCut(MeshBuilder mesh)
     {
         sortedPointsAlongCut = SortPointsAlongCut();
+        RemoveCollinearPoints();
         bool isSortedClockwise = IsCutWindingClockwise();
 
         List<VertexData[]> ears = new List<VertexData[]>();
@@ -243,7 +293,10 @@ public class MeshCutter
             }
 
             if (!earFound)
+            {
+                Debug.LogError($"Ear clipping failed. Remaining vertices: {sortedPointsAlongCut.Count}");
                 break;
+            }
         }
 
         // the last three vertices form the final triangle
@@ -272,44 +325,52 @@ public class MeshCutter
         List<VertexData> sortedPoints = new List<VertexData>();
 
         // copy of pointsAlongCut collection
-        List<VertexData> unsortedPoints = new List<VertexData>(pointsAlongCut);
+        List<CutSegment> unsortedSegments = new List<CutSegment>(cutSegments);
 
         // starting with the first segment
-        sortedPoints.Add(unsortedPoints[0]);
-        sortedPoints.Add(unsortedPoints[1]);
-        unsortedPoints.RemoveRange(0, 2);
+        sortedPoints.Add(unsortedSegments[0].first);
+        sortedPoints.Add(unsortedSegments[0].second);
+        unsortedSegments.RemoveAt(0);
 
-        while (unsortedPoints.Count > 0)
+        while (unsortedSegments.Count > 0)
         {
             bool found = false;
 
             // comparing last sorted point and current unsorted
-            for (int i = 0; i < unsortedPoints.Count; i += 2)
+            for (int i = 0; i < unsortedSegments.Count; i++)
             {
-                // comparing by pairs
-                int first = i;
-                int second = i + 1;
+                CutSegment segment = unsortedSegments[i];
 
-                if (MeshOperations.IsSamePoint3D(sortedPoints.Last().position, unsortedPoints[first].position))
-                    sortedPoints.Add(unsortedPoints[second]);
-                else if (MeshOperations.IsSamePoint3D(sortedPoints.Last().position, unsortedPoints[second].position))
-                    sortedPoints.Add(unsortedPoints[first]);
-                else
-                    continue;
+                // comparing segment endpoints
+                if (MeshOperations.IsSamePoint3D(sortedPoints.Last().position, segment.first.position))
+                {
+                    if (!MeshOperations.IsSamePoint3D(sortedPoints.First().position, segment.second.position))
+                        sortedPoints.Add(segment.second);
 
-                unsortedPoints.RemoveRange(first, 2);
-                found = true;
-                break;
+                    unsortedSegments.RemoveAt(i);
+                    found = true;
+                    break;
+                }
+                else if (MeshOperations.IsSamePoint3D(sortedPoints.Last().position, segment.second.position))
+                {
+                    if (!MeshOperations.IsSamePoint3D(sortedPoints.First().position, segment.first.position))
+                        sortedPoints.Add(segment.first);
+
+                    unsortedSegments.RemoveAt(i);
+                    found = true;
+                    break;
+                }
             }
 
             if (!found)
                 break;
+
+            if (MeshOperations.IsSamePoint3D(sortedPoints.Last().position, sortedPoints.First().position))
+                break;
         }
 
-        // removing last duplicated point
-        sortedPoints.Remove(sortedPoints.Last());
-
         Debug.Log("Points along cut: " + sortedPoints.Count);
+        Debug.Log($"Cut segments: {cutSegments.Count}, unused segments: {unsortedSegments.Count}");
         return sortedPoints;
     }
 
@@ -324,7 +385,7 @@ public class MeshCutter
         // iterating over all polygon edges
         for (int i = 0; i < sortedPointsAlongCut.Count; i++)
         {
-            // converting points from 3D to 2D
+            // converting 3D to 2D
             Vector2 current = ProjectToSlicePlane(sortedPointsAlongCut[i].position);
             Vector2 next = ProjectToSlicePlane(sortedPointsAlongCut[(i + 1) % sortedPointsAlongCut.Count].position);
 
@@ -411,5 +472,39 @@ public class MeshCutter
         Vector3 up = Vector3.Cross(right, slicePlane.normal).normalized;
 
         return new Vector2(Vector3.Dot(position, right), Vector3.Dot(position, up));
+    }
+
+    private void RemoveCollinearPoints()
+    {
+        bool pointRemoved = true;
+
+        while (pointRemoved && sortedPointsAlongCut.Count > 3)
+        {
+            pointRemoved = false;
+
+            for (int i = 0; i < sortedPointsAlongCut.Count; i++)
+            {
+                Vector2 previous = ProjectToSlicePlane(
+                    sortedPointsAlongCut[(i - 1 + sortedPointsAlongCut.Count) % sortedPointsAlongCut.Count].position);
+
+                Vector2 current = ProjectToSlicePlane(
+                    sortedPointsAlongCut[i].position);
+
+                Vector2 next = ProjectToSlicePlane(
+                    sortedPointsAlongCut[(i + 1) % sortedPointsAlongCut.Count].position);
+
+                Vector2 vectA = current - previous;
+                Vector2 vectB = next - current;
+
+                float cross = vectA.x * vectB.y - vectA.y * vectB.x;
+
+                if (Mathf.Abs(cross) < 0.000001f)
+                {
+                    sortedPointsAlongCut.RemoveAt(i);
+                    pointRemoved = true;
+                    break;
+                }
+            }
+        }
     }
 }

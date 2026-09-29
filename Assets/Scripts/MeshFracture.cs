@@ -24,13 +24,18 @@ public class MeshFracture : MonoBehaviour
 
     private int RandomizeSeedCount()
     {
-        if (cellAmountMin <= cellAmountMax && cellAmountMin > 1 && cellAmountMax > 1)
+        if (cellAmountMin > 1 && cellAmountMax > 1)
             if (randomizeSeedCount)
-                return Random.Range(cellAmountMin, cellAmountMax);
+                if (cellAmountMin <= cellAmountMax)
+                    return Random.Range(cellAmountMin, cellAmountMax);
+                else
+                    Debug.LogError("Seed random range min must be lower than max.");
             else
                 return cellAmountMin;
         else
-            return -1;
+            Debug.LogError("Invalid seed random range.");
+
+        return -1;
     }
 
     public void FractureMeshVoronoi()
