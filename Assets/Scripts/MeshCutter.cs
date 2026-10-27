@@ -15,6 +15,7 @@ public class MeshCutter
     private List<VertexData> sortedPointsAlongCut;
 
     private Dictionary<IntersectionKey, Vector3> intersectionCache;
+    private List<VertexData> uniquePointsAlongCut;
 
     public MeshCutter(Mesh mesh, Plane plane, Vector3? pointToKeep = null)
     {
@@ -56,7 +57,24 @@ public class MeshCutter
     }
 
     /// <summary>
-    /// 
+    /// returns VertexData of a point recognised as cannonical - unique.
+    /// method reduces amount of similar points along cut with precision defined in MeshOperations method
+    /// </summary>
+    private VertexData GetUniqueCutPoint(VertexData vertex)
+    {
+        for (int i = 0; i < uniquePointsAlongCut.Count; i++)
+        {
+            if (MeshOperations.IsSamePoint3D(uniquePointsAlongCut[i].position, vertex.position))
+                return uniquePointsAlongCut[i];
+        }
+
+        // point is added to the collection only if it's unique by defined precision
+        uniquePointsAlongCut.Add(vertex);
+        return vertex;
+    }
+
+    /// <summary>
+    /// performs a single cut on a mesh, can keep and build a chosen side or both of them
     /// </summary>
     public (Mesh positiveMesh, Mesh negativeMesh) Cut()
     {
@@ -67,6 +85,7 @@ public class MeshCutter
 
         // list for collecting vertices on slice plane
         cutSegments = new List<CutSegment>();
+        uniquePointsAlongCut = new List<VertexData>();
 
         intersectionCache = new Dictionary<IntersectionKey, Vector3>();
 
@@ -195,6 +214,11 @@ public class MeshCutter
         // side does not matter - 2 new meshes have the same cut hole
         AddCutSegment(abIntersection, acIntersection);
 
+        float length = Vector3.Distance(
+            abIntersection.position,
+            acIntersection.position
+        );
+
         // 2 separate cases
         if (aVert.side) // A positive, B&C negative
         {
@@ -220,11 +244,43 @@ public class MeshCutter
         }
     }
 
+    private void MergeCutPoints(VertexData first, VertexData second)
+    {
+        Vector3 mergedPosition = (first.position + second.position) * 0.5f;
+
+        for (int i = 0; i < cutSegments.Count; i++)
+        {
+            CutSegment segment = cutSegments[i];
+
+            if (MeshOperations.IsSamePoint3D(segment.first.position, first.position) ||
+                MeshOperations.IsSamePoint3D(segment.first.position, second.position))
+            {
+                VertexData mergedVertex = segment.first;
+                mergedVertex.position = mergedPosition;
+                segment.first = mergedVertex;
+            }
+
+            if (MeshOperations.IsSamePoint3D(segment.second.position, first.position) ||
+                MeshOperations.IsSamePoint3D(segment.second.position, second.position))
+            {
+                VertexData mergedVertex = segment.second;
+                mergedVertex.position = mergedPosition;
+                segment.second = mergedVertex;
+            }
+
+            cutSegments[i] = segment;
+        }
+    }
+
     /// <summary>
     /// Adding segment to a list if it is usnique
     /// </summary>
     private void AddCutSegment(VertexData first, VertexData second)
     {
+        // checking the uniqueness of both ends in the points collection
+        first = GetUniqueCutPoint(first);
+        second = GetUniqueCutPoint(second);
+
         if (MeshOperations.IsSamePoint3D(first.position, second.position))
             return;
 
@@ -329,8 +385,6 @@ public class MeshCutter
             });
         }
 
-        Debug.Log("Ears: " + ears.Count);
-
         AddCutTriangles(ears);
     }
 
@@ -345,6 +399,45 @@ public class MeshCutter
 
         // copy of pointsAlongCut collection
         List<CutSegment> unsortedSegments = new List<CutSegment>(cutSegments);
+
+
+
+        Dictionary<int, List<VertexData>> connectedVertices = new Dictionary<int, List<VertexData>>();
+
+        void RegisterVertex(VertexData vertex)
+        {
+            int neighbours = 0;
+
+            foreach (CutSegment segment in cutSegments)
+            {
+                if (MeshOperations.IsSamePoint3D(vertex.position, segment.first.position) ||
+                    MeshOperations.IsSamePoint3D(vertex.position, segment.second.position))
+                    neighbours++;
+            }
+
+            if (!connectedVertices.ContainsKey(neighbours))
+                connectedVertices.Add(neighbours, new List<VertexData>());
+
+            bool alreadyAdded = false;
+
+            foreach (VertexData existing in connectedVertices[neighbours])
+            {
+                if (MeshOperations.IsSamePoint3D(existing.position, vertex.position))
+                {
+                    alreadyAdded = true;
+                    break;
+                }
+            }
+
+            if (!alreadyAdded)
+                connectedVertices[neighbours].Add(vertex);
+        }
+
+        foreach (CutSegment segment in cutSegments)
+        {
+            RegisterVertex(segment.first);
+            RegisterVertex(segment.second);
+        }
 
         // starting with the first segment
         sortedPoints.Add(unsortedSegments[0].first);
@@ -388,8 +481,8 @@ public class MeshCutter
                 break;
         }
 
-        Debug.Log("Points along cut: " + sortedPoints.Count);
         Debug.Log($"Cut segments: {cutSegments.Count}, unused segments: {unsortedSegments.Count}");
+
         return sortedPoints;
     }
 
@@ -496,8 +589,15 @@ public class MeshCutter
     /// <summary>
     /// optimisation method for reducing triangle count on cut parts
     /// </summary>
+    /// <summary>
+    /// optimisation method for reducing triangle count on cut parts
+    /// </summary>
     private void RemoveCollinearPoints()
     {
+        const float pointLineDistanceEpsilon = 0.000001f;
+        const float minimumSegmentLength = 0.0000001f;
+        const float minimumDirectionDot = 0.9999f;
+
         bool pointRemoved = true;
 
         // iterating over points until there is no collinear neighbors
@@ -511,12 +611,55 @@ public class MeshCutter
                 Vector2 current = ProjectToSlicePlane(sortedPointsAlongCut[i].position);
                 Vector2 next = ProjectToSlicePlane(sortedPointsAlongCut[(i + 1) % sortedPointsAlongCut.Count].position);
 
-                Vector2 vectA = current - previous;
-                Vector2 vectB = next - current;
+                Vector2 previousToCurrent = current - previous;
+                Vector2 currentToNext = next - current;
+                Vector2 previousToNext = next - previous;
 
-                float cross = vectA.x * vectB.y - vectA.y * vectB.x;
+                float previousToCurrentLength = previousToCurrent.magnitude;
+                float currentToNextLength = currentToNext.magnitude;
+                float previousToNextLength = previousToNext.magnitude;
 
-                if (Mathf.Abs(cross) < 0.000001f)       // points on a line detected
+                if (previousToCurrentLength < minimumSegmentLength ||
+                    currentToNextLength < minimumSegmentLength)
+                {
+                    sortedPointsAlongCut.RemoveAt(i);
+                    pointRemoved = true;
+                    break;
+                }
+
+                if (previousToNextLength < minimumSegmentLength)
+                    continue;
+
+                float directionDot = Vector2.Dot(
+                    previousToCurrent / previousToCurrentLength,
+                    currentToNext / currentToNextLength
+                );
+
+                float cross = Mathf.Abs(
+                    previousToNext.x * (current.y - previous.y) -
+                    previousToNext.y * (current.x - previous.x)
+                );
+
+                float distanceFromLine = cross / previousToNextLength;
+
+                float projection = Vector2.Dot(
+                    current - previous,
+                    previousToNext
+                ) / (previousToNextLength * previousToNextLength);
+
+                bool pointLiesBetweenNeighbours =
+                    projection > 0f &&
+                    projection < 1f;
+
+                bool sameDirection =
+                    directionDot > minimumDirectionDot;
+
+                bool pointLiesOnNeighbourEdge =
+                    distanceFromLine < pointLineDistanceEpsilon;
+
+                if (pointLiesBetweenNeighbours &&
+                    sameDirection &&
+                    pointLiesOnNeighbourEdge)
                 {
                     sortedPointsAlongCut.RemoveAt(i);
                     pointRemoved = true;
